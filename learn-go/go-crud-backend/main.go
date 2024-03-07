@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/cors"
 )
 
 type Item struct {
@@ -23,11 +24,13 @@ var items = []Item{
 }
 
 func getItems(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Handling GET request for items")
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(items)
 }
 
 func getItem(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Handling GET request for a single item")
 	w.Header().Set("Content-Type", "application/json")
 	params := mux.Vars(r)
 	id, err := strconv.Atoi(params["id"])
@@ -47,6 +50,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func createItem(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Handling POST request to create a new item")
 	w.Header().Set("Content-Type", "application/json")
 	var newItem Item
 	_ = json.NewDecoder(r.Body).Decode(&newItem)
@@ -56,6 +60,7 @@ func createItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func updateItem(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Handling PUT request to update an item")
 	w.Header().Set("Content-Type", "application/json")
 	params := mux.Vars(r)
 	id, err := strconv.Atoi(params["id"])
@@ -79,6 +84,7 @@ func updateItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteItem(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Handling DELETE request to delete an item")
 	w.Header().Set("Content-Type", "application/json")
 	params := mux.Vars(r)
 	id, err := strconv.Atoi(params["id"])
@@ -101,6 +107,14 @@ func deleteItem(w http.ResponseWriter, r *http.Request) {
 func main() {
 	router := mux.NewRouter()
 
+	// Use rs/cors middleware
+	// handler := cors.Default().Handler(router)
+	handler := cors.New(cors.Options{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{"Content-Type"},
+	}).Handler(router)
+
 	router.HandleFunc("/api/items", getItems).Methods("GET")
 	router.HandleFunc("/api/items/{id}", getItem).Methods("GET")
 	router.HandleFunc("/api/items", createItem).Methods("POST")
@@ -108,5 +122,5 @@ func main() {
 	router.HandleFunc("/api/items/{id}", deleteItem).Methods("DELETE")
 
 	fmt.Println("Server is running on port 8080")
-	http.ListenAndServe(":8080", router)
+	http.ListenAndServe(":8080", handler)
 }

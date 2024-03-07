@@ -41,50 +41,55 @@ export default {
     this.fetchItems();
   },
   methods: {
-    async fetchItems() {
-      try {
-        const response = await axios.get('http://localhost:8080/api/items');
-        this.items = response.data;
-      } catch (error) {
-        console.error('Error fetching items:', error);
-      }
-    },
-    async createItem() {
-      try {
-        const response = await axios.post('http://localhost:8080/api/items', {
-          name: this.newItemName,
+    fetchItems() {
+      axios.get('http://localhost:8080/api/items')
+        .then(response => {
+          this.items = response.data;
+          // console.log(this.items);
+        })
+        .catch(error => {
+          console.error('Error fetching items:', error);
         });
+    },
+    createItem() {
+      axios.post('http://localhost:8080/api/items', {
+        name: this.newItemName,
+      })
+      .then(response => {
         this.items.push(response.data);
         this.newItemName = '';
-      } catch (error) {
+      })
+      .catch(error => {
         console.error('Error creating item:', error);
-      }
+      });
     },
     editItem(item) {
       this.selectedItem = { ...item };
     },
-    async updateItem() {
-      try {
-        const response = await axios.put(
-          `http://localhost:8080/api/items/${this.selectedItem.id}`,
-          this.selectedItem
-        );
-        const index = this.items.findIndex((item) => item.id === response.data.id);
-        if (index !== -1) {
-          this.$set(this.items, index, response.data);
-        }
-        this.selectedItem = null;
-      } catch (error) {
-        console.error('Error updating item:', error);
-      }
+    updateItem() {
+      axios.put(`http://localhost:8080/api/items/${this.selectedItem.id}`, this.selectedItem)
+        .then(response => {
+          const index = this.items.findIndex(item => item.id === response.data.id);
+          if (index !== -1) {
+            this.items, index, response.data;
+          window.location.reload();
+
+          }
+          this.selectedItem = null;
+
+        })
+        .catch(error => {
+          console.error('Error updating item:', error);
+        });
     },
-    async deleteItem(itemId) {
-      try {
-        await axios.delete(`http://localhost:8080/api/items/${itemId}`);
-        this.items = this.items.filter((item) => item.id !== itemId);
-      } catch (error) {
-        console.error('Error deleting item:', error);
-      }
+    deleteItem(itemId) {
+      axios.delete(`http://localhost:8080/api/items/${itemId}`)
+        .then(() => {
+          this.items = this.items.filter(item => item.id !== itemId);
+        })
+        .catch(error => {
+          console.error('Error deleting item:', error);
+        });
     },
   },
 };
