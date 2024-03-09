@@ -23,6 +23,22 @@
       <input v-model="selectedItem.name" required />
       <button type="submit">Update</button>
     </form>
+
+    <h2>Search Items</h2>
+    <input v-model="searchTerm" placeholder="Search items..." />
+    <button @click="searchItems">Search</button>
+
+    <!-- Display search results -->
+    <h2>Search Results</h2>
+    <ul>
+      <li v-for="result in searchResults" :key="result.id">
+        {{ result.name }}
+      </li>
+    </ul>
+      
+    
+    
+    
   </div>
 </template>
 
@@ -35,6 +51,8 @@ export default {
       items: [],
       newItemName: '',
       selectedItem: null,
+      searchTerm: '', // Tambahkan variabel searchTerm
+      searchResults: [], // Tambahkan variabel searchResults
     };
   },
   mounted() {
@@ -49,6 +67,15 @@ export default {
         })
         .catch(error => {
           console.error('Error fetching items:', error);
+        });
+    },
+    searchItems() {
+      axios.get(`http://localhost:8080/api/items?search=${this.searchTerm}`)
+        .then(response => {
+          this.searchResults = response.data;
+        })
+        .catch(error => {
+          console.error('Error searching items:', error);
         });
     },
     createItem() {

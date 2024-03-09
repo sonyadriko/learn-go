@@ -1,16 +1,20 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 
-	_ "github.com/go-sql-driver/mysql"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
 )
+
+var db *gorm.DB
 
 type Item struct {
 	ID    int     `json:"id"`
@@ -18,58 +22,28 @@ type Item struct {
 	Price float64 `json:"price"`
 }
 
-var db *sql.DB
-
 func init() {
-	// Open a database connection
 	var err error
-	db, err = sql.Open("mysql", "root:@tcp(localhost:3306)/test_go")
+	dsn := "root:@tcp(localhost:3306)/test_go"
+	db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic(err.Error())
 	}
 
 	// Test the connection
-	err = db.Ping()
+	err = db.Exec("SELECT 1").Error
 	if err != nil {
 		panic(err.Error())
 	}
 	fmt.Println("Connected to MySQL")
 }
 
-// var items = []Item{
-// 	{1, "Item 1", 19.99},
-// 	{2, "Item 2", 29.99},
-// 	{3, "Item 3", 39.99},
-// 	{4, "Item 4", 49.99},
-// }
-
-// func getItems(w http.ResponseWriter, r *http.Request) {
-// 	fmt.Println("Handling GET request for items")
-// 	w.Header().Set("Content-Type", "application/json")
-// 	json.NewEncoder(w).Encode(items)
-// }
-
 func getItems(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Handling GET request for items")
 	w.Header().Set("Content-Type", "application/json")
 
-	rows, err := db.Query("SELECT * FROM items")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
 	var items []Item
-	for rows.Next() {
-		var item Item
-		err := rows.Scan(&item.ID, &item.Name, &item.Price)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		items = append(items, item)
-	}
+	db.Find(&items)
 
 	json.NewEncoder(w).Encode(items)
 }
@@ -85,15 +59,14 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	row := db.QueryRow("SELECT * FROM items WHERE id=?", id)
-
 	var item Item
-	err = row.Scan(&item.ID, &item.Name, &item.Price)
-	if err == sql.ErrNoRows {
-		http.Error(w, "Item not found", http.StatusNotFound)
-		return
-	} else if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	result := db.First(&item, id)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			http.Error(w, "Item not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, result.Error.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -106,24 +79,8 @@ func createItem(w http.ResponseWriter, r *http.Request) {
 
 	var newItem Item
 	_ = json.NewDecoder(r.Body).Decode(&newItem)
+	db.Create(&newItem)
 
-	// Insert the new item into the MySQL database
-	result, err := db.Exec("INSERT INTO items (name, price) VALUES (?, ?)", newItem.Name, newItem.Price)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Get the ID of the newly inserted item
-	// newItem.ID, _ = result.LastInsertId()
-
-	// Get the ID of the newly inserted item
-	newItemID, _ := result.LastInsertId()
-
-	// Assign the obtained ID to the newItem
-	newItem.ID = int(newItemID)
-
-	// Return the newly created item in the response
 	json.NewEncoder(w).Encode(newItem)
 }
 
@@ -132,24 +89,57 @@ func updateItem(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	params := mux.Vars(r)
-	id, err := strconv.Atoi(params["id"])
+	idStr, ok := params["id"]
+	if !ok {
+		http.Error(w, "Item ID is missing", http.StatusBadRequest)
+		return
+	}
+
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "Invalid item ID", http.StatusBadRequest)
 		return
 	}
 
-	var updatedItem Item
-	_ = json.NewDecoder(r.Body).Decode(&updatedItem)
-
-	// Update the item in the MySQL database
-	_, err = db.Exec("UPDATE items SET name=?, price=? WHERE id=?", updatedItem.Name, updatedItem.Price, id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	var existingItem Item
+	result := db.First(&existingItem, id)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			http.Error(w, "Item not found", http.StatusNotFound)
+		} else {
+			fmt.Println("Error retrieving existing item:", result.Error)
+			http.Error(w, result.Error.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
-	// Return the updated item in the response
-	json.NewEncoder(w).Encode(updatedItem)
+	var updatedItem Item
+	if err := json.NewDecoder(r.Body).Decode(&updatedItem); err != nil {
+		fmt.Println("Error decoding request body:", err)
+		http.Error(w, "Error decoding request body", http.StatusBadRequest)
+		return
+	}
+
+	fmt.Printf("Updating item with ID %d\n", id)
+	fmt.Printf("Updated item: %+v\n", updatedItem)
+
+	// Update only the specified fields
+	result = db.Model(&existingItem).Updates(updatedItem)
+	if result.Error != nil {
+		fmt.Println("Error updating item:", result.Error)
+		http.Error(w, result.Error.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch the updated item from the database
+	result = db.First(&existingItem, id)
+	if result.Error != nil {
+		fmt.Println("Error retrieving updated item:", result.Error)
+		http.Error(w, result.Error.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(existingItem)
 }
 
 func deleteItem(w http.ResponseWriter, r *http.Request) {
@@ -157,20 +147,57 @@ func deleteItem(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	params := mux.Vars(r)
-	id, err := strconv.Atoi(params["id"])
+	idStr, ok := params["id"]
+	if !ok {
+		http.Error(w, "Item ID is missing", http.StatusBadRequest)
+		return
+	}
+
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "Invalid item ID", http.StatusBadRequest)
 		return
 	}
 
 	// Delete the item from the MySQL database
-	_, err = db.Exec("DELETE FROM items WHERE id=?", id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	result := db.Delete(&Item{}, id)
+	if result.Error != nil {
+		http.Error(w, result.Error.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		http.Error(w, "Item not found", http.StatusNotFound)
 		return
 	}
 
 	w.Write([]byte(`{"message":"Item deleted successfully"}`))
+}
+
+// Di sisi server (Go)
+func searchItems(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Handling GET request for search items")
+	w.Header().Set("Content-Type", "application/json")
+
+	// Ambil nilai-nilai pencarian dari query parameter "search"
+	searchParam := r.URL.Query().Get("search")
+	if searchParam == "" {
+		http.Error(w, "Parameter 'search' is required", http.StatusBadRequest)
+		return
+	}
+
+	// Buat variabel untuk menyimpan hasil pencarian
+	var items []Item
+
+	// Lakukan pencarian berdasarkan nilai pencarian
+	result := db.Where("name LIKE ?", "%"+searchParam+"%").Find(&items)
+	if result.Error != nil {
+		http.Error(w, result.Error.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Kirim hasil pencarian sebagai respons
+	json.NewEncoder(w).Encode(items)
 }
 
 func main() {
@@ -189,6 +216,7 @@ func main() {
 	router.HandleFunc("/api/items", createItem).Methods("POST")
 	router.HandleFunc("/api/items/{id}", updateItem).Methods("PUT")
 	router.HandleFunc("/api/items/{id}", deleteItem).Methods("DELETE")
+	router.HandleFunc("/api/search/items", searchItems).Methods("GET")
 
 	fmt.Println("Server is running on port 8080")
 	http.ListenAndServe(":8080", handler)
