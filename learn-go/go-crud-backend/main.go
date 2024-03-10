@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -17,14 +18,15 @@ import (
 var db *gorm.DB
 
 type Item struct {
-	ID    int     `json:"id"`
-	Name  string  `json:"name"`
-	Price float64 `json:"price"`
+	ID        int        `json:"id"`
+	Name      string     `json:"name"`
+	Price     float64    `json:"price"`
+	DeletedAt *time.Time `json:"deletedAt" gorm:"index;type:timestamp"`
 }
 
 func init() {
 	var err error
-	dsn := "root:@tcp(localhost:3306)/test_go"
+	dsn := "root:@tcp(localhost: 3306)/test_go"
 	db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic(err.Error())
@@ -174,6 +176,34 @@ func deleteItem(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"message":"Item deleted successfully"}`))
 }
 
+func deletea(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Handling DELETE request to soft delete an item")
+	w.Header().Set("Content-Type", "application/json")
+
+	params := mux.Vars(r)
+	idStr, ok := params["id"]
+	if !ok {
+		http.Error(w, "Item ID is missing", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid item ID", http.StatusBadRequest)
+		return
+	}
+	current := time.Now()
+	// Soft delete by updating the deleted_at field
+	db1 := db.Model(Item{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"deleted_at": &current,
+	})
+	if db1.Error != nil {
+		http.Error(w, "error", http.StatusBadRequest)
+		return
+	}
+	// item := Item{ID: int32(id)}
+	// db.Save(&item) // update the item with a SoftDeletedAt timestamp
+}
+
 // Di sisi server (Go)
 func searchItems(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Handling GET request for search items")
@@ -215,6 +245,7 @@ func main() {
 	router.HandleFunc("/api/items/{id}", getItem).Methods("GET")
 	router.HandleFunc("/api/items", createItem).Methods("POST")
 	router.HandleFunc("/api/items/{id}", updateItem).Methods("PUT")
+	router.HandleFunc("/api/itemss/{id}", deletea).Methods("PUT")
 	router.HandleFunc("/api/items/{id}", deleteItem).Methods("DELETE")
 	router.HandleFunc("/api/search/items", searchItems).Methods("GET")
 
